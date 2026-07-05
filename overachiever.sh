@@ -19,6 +19,14 @@ USAGE_LIMIT_FALLBACK_WAIT="${USAGE_LIMIT_FALLBACK_WAIT:-18000}"
 # How often (seconds) to print a heartbeat while idling
 IDLE_HEARTBEAT_SECONDS="${IDLE_HEARTBEAT_SECONDS:-300}"
 
+# After finishing all currently-known tasks, poll the task file this many
+# times (waiting NEW_TASK_POLL_SECONDS between checks) to catch tasks that
+# were appended right around the time the script was about to exit. Set
+# NEW_TASK_POLL_ROUNDS=0 to disable polling and exit immediately once no
+# new tasks are found.
+NEW_TASK_POLL_SECONDS="${NEW_TASK_POLL_SECONDS:-5}"
+NEW_TASK_POLL_ROUNDS="${NEW_TASK_POLL_ROUNDS:-3}"
+
 # --- Preflight checks ---
 
 # Make sure the claude CLI is installed and on PATH
@@ -83,6 +91,38 @@ print_resume_help() {
     echo "  claude --resume <session-id>"
   fi
   echo
+}
+
+# Re-reads the entire task file and populates the global TASKS array with one
+# element per blank-line-delimited task block. Called fresh every time we need
+# an up-to-date task count, so tasks appended to the file after the script
+# started (or even mid-run) are picked up on the next check.
+read_all_tasks() {
+  local file="$1"
+  TASKS=()
+  local current=""
+  local line
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -z "${line//[[:space:]]/}" ]]; then
+      # Blank (or whitespace-only) line = end of current task block
+      if [[ -n "$current" ]]; then
+        TASKS+=("$current")
+        current=""
+      fi
+    else
+      # Non-blank line = part of the current task; append with a newline separator
+      if [[ -n "$current" ]]; then
+        current+=$'\n'
+      fi
+      current+="$line"
+    fi
+  done < "$file"
+
+  # Handle a trailing task that wasn't followed by a final blank line
+  if [[ -n "$current" ]]; then
+    TASKS+=("$current")
+  fi
 }
 
 # Decide whether a failure looks like a plan usage-limit lockout (as opposed
@@ -225,7 +265,7 @@ run_task() {
   echo "============================================================"
   echo "TASK $num"
   echo "============================================================"
-  printf '%s\n' "$prompt"
+  printf '%s\n' "$task"
   echo
   echo "--- Claude output ---"
 
@@ -312,36 +352,46 @@ run_task() {
   echo
 }
 
-# --- Main task-parsing loop ---
-# Tasks in the file are separated by blank lines; each block becomes one task
+# --- Main task-processing loop ---
+# Tasks in the file are separated by blank lines; each block becomes one task.
+# Rather than reading the file once, this loop re-scans the *entire* task
+# file every time it needs to know how many tasks exist. That means tasks
+# appended to the end of the file — even while the script is mid-run, or
+# right as it's about to finish the last known task — get picked up
+# automatically on the next check, no restart needed.
 
+TASKS=()
 task_num=0
-current_task=""
+poll_round=0
 
-while IFS= read -r line <&3 || [[ -n "$line" ]]; do
-  if [[ -z "${line//[[:space:]]/}" ]]; then
-    # Blank (or whitespace-only) line = end of current task block
-    if [[ -n "$current_task" ]]; then
-      task_num=$((task_num + 1))
-      run_task "$current_task" "$task_num"
-      current_task=""
-    fi
-  else
-    # Non-blank line = part of the current task; append with a newline separator
-    if [[ -n "$current_task" ]]; then
-      current_task+=$'\n'
-    fi
-    current_task+="$line"
+while true; do
+  read_all_tasks "$TASK_FILE"
+  total_tasks="${#TASKS[@]}"
+
+  if (( task_num < total_tasks )); then
+    # There's at least one task we haven't run yet — run the next one
+    poll_round=0
+    task_num=$((task_num + 1))
+    run_task "${TASKS[$((task_num - 1))]}" "$task_num"
+    continue
   fi
-done 3< "$TASK_FILE"
 
-# Handle a trailing task that wasn't followed by a final blank line
-if [[ -n "$current_task" ]]; then
-  task_num=$((task_num + 1))
-  run_task "$current_task" "$task_num"
-fi
+  # No new tasks right now. Before giving up, poll the file a few times in
+  # case a task is appended right around now (e.g. you were mid-edit when
+  # the previous task finished). Disable by setting NEW_TASK_POLL_ROUNDS=0.
+  if (( poll_round >= NEW_TASK_POLL_ROUNDS )); then
+    break
+  fi
 
-# If the file was empty or had no valid tasks, fail loudly
+  poll_round=$((poll_round + 1))
+  if (( poll_round == 1 )); then
+    echo
+    echo "No new tasks found. Watching $TASK_FILE for appended tasks (checking every ${NEW_TASK_POLL_SECONDS}s, ${NEW_TASK_POLL_ROUNDS} more time(s) before exiting)..."
+  fi
+  sleep "$NEW_TASK_POLL_SECONDS"
+done
+
+# If the file was empty or had no valid tasks at all, fail loudly
 if [[ "$task_num" -eq 0 ]]; then
   echo "No tasks found in $TASK_FILE" >&2
   exit 1
