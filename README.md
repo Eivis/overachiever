@@ -41,6 +41,8 @@ Task two description
 
 - `task_file` (optional) — defaults to `tasks.txt` if not given.
 
+- You can optionally describe `ADDITIONAL_PROMPT=""` in the script if some additional details has to be added to every task.
+
 ## What It Does
 
 1. Checks that `claude` and `jq` are installed, and that the task file exists.
