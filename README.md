@@ -15,13 +15,6 @@ A bash script that runs a batch of Claude Code tasks one after another, automati
 chmod +x overachiever.sh
 
 # 2. Create a task file, one task per block, separated by blank lines
-cat > tasks.txt << 'EOF'
-Refactor the auth module to use async/await
-
-Write unit tests for the payment service
-
-Update the README with new API endpoints
-EOF
 
 # 3. Run it
 ./overachiever.sh tasks.txt
