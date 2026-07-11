@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claude-task-lib.sh - shared helpers for run-tasks.sh and resume-session.sh
+# claude-task-lib.sh - shared helpers for overachiever.sh and resume-session.sh
 set -euo pipefail
 
 RESUME_GRACE_SECONDS="${RESUME_GRACE_SECONDS:-60}"

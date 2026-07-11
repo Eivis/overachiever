@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# resume-session.sh [session-id] [task_file] [-- extra args passed to run-tasks.sh]
+# resume-session.sh [session-id] [task_file] [-- extra args passed to overachiever.sh]
 #
-# Use this when a previous run-tasks.sh invocation was interrupted (e.g. ran
+# Use this when a previous overachiever.sh invocation was interrupted (e.g. ran
 # out of credits) and you need to finish that ONE session before the main
 # script starts working through the rest of the task file. This keeps the
-# "resolve stuck session" logic out of run-tasks.sh entirely.
+# "resolve stuck session" logic out of overachiever.sh entirely.
 #
 # If <session-id> is omitted, it is read from SESSION_ID_FILE
 # (default: .claude-session-id) instead.
@@ -49,4 +49,4 @@ fi
 
 echo
 echo "Launching main task runner on $TASK_FILE..."
-exec "$SCRIPT_DIR/run-tasks.sh" "$TASK_FILE" "$@"
+exec "$SCRIPT_DIR/overachiever.sh" "$TASK_FILE" "$@"
